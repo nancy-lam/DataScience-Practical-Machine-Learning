@@ -1,0 +1,174 @@
+---
+title: "Practical Machine Learning Project"
+author: "Hoang Lam (Nancy Lam)"
+date: "March 5, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## OVERVIEW
+
+When using devices such as Jawbone Up, Nike FuelBand, and Fitbit, people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. This project will focus on building prediction model to predict 20 different test cases to predict the manner in which people did the exercise. The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.
+
+## SET UP
+
+### Load packages
+```{r message=FALSE, warning=FALSE}
+library(ggplot2)
+library(caret)
+library(rpart)
+library(rattle)
+library(rpart.plot)
+library(randomForest)
+library(readr)
+library(dplyr)
+```
+
+### Load data
+
+```{r, message = FALSE, warning=FALSE, error=FALSE}
+pml_training <- read_csv("C:/Users/tuuye/Desktop/Data Science/John Hopkins/Machine Learning/pml-training.csv")
+pml_testing <- read_csv("C:/Users/tuuye/Desktop/Data Science/John Hopkins/Machine Learning/pml-testing.csv")
+```
+
+### Set seed 
+
+```{r}
+set.seed(190594)
+```
+
+## DATA CLEANING
+
+Check dimension of the training data
+
+```{r}
+dim(pml_training)
+```
+
+The data frame has 19622 rows (observations) and 160 columns (variables). We will look at the first six rows of the dataset
+
+```{r}
+head(pml_training)
+```
+
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. And those variables are in the columns #8 to #159. Column #160 `classe` is used as an outcome to build prediction model. The data from first seven columns are not related to our prediction so we will exclude those columns from our data
+
+```{r}
+accelerometers = grep(pattern = "_belt|_arm|_dumbbell|_forearm", names(pml_training))
+length(accelerometers)
+```
+
+And include column#160 to the new data frame
+
+```{r}
+data <- pml_training[, c(accelerometers, 160)]
+dim(data)
+```
+
+Then we will check if the dataset has missing values or not
+
+```{r}
+na_count <- colSums(is.na(data))
+head(sort(na_count, decreasing = TRUE), n = 6)
+```
+
+```{r}
+omitColumns = which(na_count > 19000)
+data = data[, -omitColumns]
+dim(data)
+```
+
+So from 153 columns, the data is reduced to 53 columns. Then, we will check type of each column
+
+```{r}
+table(sapply(data[1,], class))
+```
+
+## DATA SPLITTING AND PREPROCESSING
+
+We have training and testing data but not the validation data. we split the cleaned training set into a pure training data set (80%) and a validation data set (20%). We will use the validation data set to conduct cross validation in future steps. 
+```{r}
+inTrain <- createDataPartition(y = data$classe, p = 0.8, list = FALSE)
+
+training <- data[inTrain,]
+validation <- data[-inTrain,]
+
+dim(training)
+dim(validation)
+```
+
+```{r}
+dim(pml_testing)
+```
+
+So we have all the data we need to build prediction model
+
+  - Training data with 15699 observations and 53 variables
+  - Testing data with 20 observations and 160 variables
+  - Validation data with 3923 observations and 53 variables
+  
+## DATA MODELING
+
+### Decision Tree
+
+We fit a predictive model for activity recognition using <b>Decision Tree</b> algorithm. 
+
+```{r}
+modelTree <- rpart(classe ~., data = training, method = 'class')
+prp(modelTree)
+```
+
+```{r}
+# We can create prettier tree by using `rattle` package
+fancyRpartPlot(modelTree)
+```
+
+Now, we estimate the performance of the model on the <b>validation</b> data set. 
+
+```{r}
+predictTree <- predict(modelTree, newdata = validation, type = 'class')
+accuracy.tree <- confusionMatrix(table(predictTree, validation$classe))
+accuracy.tree
+```
+
+We see that the accuracy is low. We will check with the 'random forest'. This model will automatically select important variables and is robust to correlated covariates and outliers in general. 
+
+```{r}
+# Plot 
+plot(accuracy.tree$table, col = accuracy.tree$byClass, main = paste('Decision Tree - Accuracy = ', round(accuracy.tree$overall['Accuracy'],4)))
+```
+
+
+### Data Forest
+
+```{r}
+modelRf <- train(classe ~., data = training, method = 'rf', trControl = trainControl(method = 'cv', 5), ntree = 250)
+modelRf$finalModel
+```
+
+```{r}
+#Applying model to the validation data
+predict.rf <- predict(modelRf, newdata = validation)
+rf <- confusionMatrix(table(predict.rf, validation$classe))
+rf
+```
+
+We see that the accuracy is much higher than the Decision Tree Model so we will use this model to to do prediction
+
+```{r}
+# Plot the matrix
+plot(rf$table, col = rf$byClass, main = paste("Random Forest - Accuracy =", round(rf$overall['Accuracy'], 4)))
+```
+
+## Applying the selected model to the testing data
+
+We will use modelRF to the testing data to predict the 20 results
+
+```{r}
+predict.test <- predict(modelRf, newdata = pml_testing)
+predict.test
+```
+
